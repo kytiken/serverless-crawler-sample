@@ -8,11 +8,45 @@ plugins:
 provider:
   name: aws
   runtime: nodejs8.10
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - "kinesis:GetRecords"
+        - "kinesis:GetShardIterator"
+        - "kinesis:DescribeStream"
+        - "kinesis:ListStreams"
+        - "kinesis:PutRecord"
+        - "kinesis:PutRecords"
+      Resource: "arn:aws:kinesis:${self:provider.region}:*:stream/*"
+
+resources:
+  Resources:
+    HelloKinesisStream:
+      Type: "AWS::Kinesis::Stream"
+      DeletionPolicy: Retain
+      Properties:
+        Name: "${self:provider.stage}-hello"
+        ShardCount: 1
 
 functions:
   hello:
+    environment: # Service wide environment variables
+      kinesisStreamName: "${self:provider.stage}-hello"
     handler: handler.hello
     events:
       - http:
           method: get
           path: hello
+
+  kinesisoutput:
+    handler: handler.kinesisoutput
+    events:
+      - stream:
+          type: kinesis
+          arn:
+            Fn::GetAtt:
+              - HelloKinesisStream
+              - Arn
+          batchSize: 1
+          startingPosition: LATEST
+          enabled: true
