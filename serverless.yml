@@ -1,5 +1,5 @@
 service:
-  name: aws-lambda-kinesis-request-sample
+  name: aws-lambda-kinesis-req-dynamo
 
 # Add the serverless-webpack plugin
 plugins:
@@ -8,6 +8,8 @@ plugins:
 provider:
   name: aws
   runtime: nodejs8.10
+  environment:
+    DYNAMODB_TABLE: ${self:service}-${self:provider.stage}
   iamRoleStatements:
     - Effect: Allow
       Action:
@@ -18,6 +20,16 @@ provider:
         - "kinesis:PutRecord"
         - "kinesis:PutRecords"
       Resource: "arn:aws:kinesis:${self:provider.region}:*:stream/*"
+    - Effect: "Allow"
+      Action: # Gives permission to DynamoDB tables in a specific region
+        - dynamodb:DescribeTable
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+      Resource: "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}"
 
 resources:
   Resources:
@@ -27,6 +39,19 @@ resources:
       Properties:
         Name: "${self:service.name}-${self:provider.stage}-page"
         ShardCount: 1
+    PageTable:
+      Type: "AWS::DynamoDB::Table"
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: ${self:provider.environment.DYNAMODB_TABLE}
 
 functions:
   hello:
