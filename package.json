@@ -10,7 +10,10 @@
   },
   "dependencies": {
     "@types/aws-sdk": "^2.7.0",
-    "aws-sdk": "^2.413.0"
+    "@types/request-promise": "^4.1.42",
+    "aws-sdk": "^2.413.0",
+    "request": "^2.88.0",
+    "request-promise": "^4.2.4"
   },
   "devDependencies": {
     "@types/aws-lambda": "8.10.1",
