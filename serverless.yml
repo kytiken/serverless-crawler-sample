@@ -1,5 +1,5 @@
 service:
-  name: aws-lambda-kinesis-sample
+  name: aws-lambda-kinesis-request-sample
 
 # Add the serverless-webpack plugin
 plugins:
@@ -25,13 +25,13 @@ resources:
       Type: "AWS::Kinesis::Stream"
       DeletionPolicy: Retain
       Properties:
-        Name: "${self:provider.stage}-hello"
+        Name: "${self:service.name}-${self:provider.stage}-page"
         ShardCount: 1
 
 functions:
   hello:
     environment: # Service wide environment variables
-      kinesisStreamName: "${self:provider.stage}-hello"
+      kinesisStreamName: "${self:service.name}-${self:provider.stage}-page"
     handler: handler.hello
     events:
       - http:
