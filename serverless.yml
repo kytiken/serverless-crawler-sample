@@ -1,5 +1,5 @@
 service:
-  name: aws-lambda-kinesis-req-dynamo
+  name: serverless-crawler-sample
 
 # Add the serverless-webpack plugin
 plugins:
@@ -9,7 +9,10 @@ provider:
   name: aws
   runtime: nodejs8.10
   environment:
-    DYNAMODB_TABLE: ${self:service}-${self:provider.stage}
+    PAGE_DYNAMODB_TABLE: ${self:service}-${self:provider.stage}-page
+    URL_DYNAMODB_TABLE: ${self:service}-${self:provider.stage}-url
+    SLOT_KINESIS_STREAM_NAME: "${self:service.name}-${self:provider.stage}-slot"
+    SLOT_KINESIS_STREAM_PARTITION_KEY: "${self:service.name}-${self:provider.stage}-slot-partition"
   iamRoleStatements:
     - Effect: Allow
       Action:
@@ -29,15 +32,15 @@ provider:
         - dynamodb:PutItem
         - dynamodb:UpdateItem
         - dynamodb:DeleteItem
-      Resource: "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}"
+      Resource: "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/*"
 
 resources:
   Resources:
-    HelloKinesisStream:
+    SlotKinesisStream:
       Type: "AWS::Kinesis::Stream"
       DeletionPolicy: Retain
       Properties:
-        Name: "${self:service.name}-${self:provider.stage}-page"
+        Name: ${self:provider.environment.SLOT_KINESIS_STREAM_NAME}
         ShardCount: 1
     PageTable:
       Type: "AWS::DynamoDB::Table"
@@ -51,26 +54,49 @@ resources:
         ProvisionedThroughput:
           ReadCapacityUnits: 1
           WriteCapacityUnits: 1
-        TableName: ${self:provider.environment.DYNAMODB_TABLE}
+        TableName: ${self:provider.environment.PAGE_DYNAMODB_TABLE}
+    UrlTable:
+      Type: "AWS::DynamoDB::Table"
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: url
+            AttributeType: S
+        KeySchema:
+          - AttributeName: url
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: ${self:provider.environment.URL_DYNAMODB_TABLE}
 
 functions:
-  hello:
+  addUrl:
     environment: # Service wide environment variables
-      kinesisStreamName: "${self:service.name}-${self:provider.stage}-page"
-    handler: handler.hello
+      URL_DYNAMODB_TABLE: ${self:provider.environment.URL_DYNAMODB_TABLE}
+    handler: handler.addUrl
+    events:
+      - http:
+          method: post
+          path: add_url
+
+  slot:
+    environment: # Service wide environment variables
+      SLOT_KINESIS_STREAM_NAME: ${self:provider.environment.SLOT_KINESIS_STREAM_NAME}
+      SLOT_KINESIS_STREAM_PARTITION_KEY: ${self:provider.environment.SLOT_KINESIS_STREAM_PARTITION_KEY}
+    handler: handler.slot
     events:
       - http:
           method: get
-          path: hello
+          path: slot
 
-  kinesisoutput:
-    handler: handler.kinesisoutput
+  crawl:
+    handler: handler.crawl
     events:
       - stream:
           type: kinesis
           arn:
             Fn::GetAtt:
-              - HelloKinesisStream
+              - SlotKinesisStream
               - Arn
           batchSize: 1
           startingPosition: LATEST

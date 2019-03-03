@@ -2,6 +2,7 @@ import { APIGatewayProxyHandler, KinesisStreamHandler } from "aws-lambda";
 import { Kinesis, DynamoDB } from "aws-sdk";
 import { v4 as uuid } from "uuid";
 const rp = require("request-promise");
+const dynamoDb = new DynamoDB.DocumentClient();
 
 const getPage = (url: string) => {
   return rp.get(url).then(htmlString => {
@@ -10,12 +11,13 @@ const getPage = (url: string) => {
 };
 
 const putKinesisStream = (data: string) => {
-  const kinesisStreamName = process.env.kinesisStreamName;
+  console.log(`putKinesisStream - data: ${data}`);
   const params: Kinesis.PutRecordInput = {
     Data: data /* required */ /* Strings will be Base-64 encoded on your behalf */,
-    PartitionKey: "hello-partition" /* required */,
-    StreamName: kinesisStreamName /* required */
+    PartitionKey: process.env.SLOT_KINESIS_STREAM_PARTITION_KEY /* required */,
+    StreamName: process.env.SLOT_KINESIS_STREAM_NAME /* required */
   };
+  console.log(params);
   const kinesis = new Kinesis();
   return kinesis
     .putRecord(params)
@@ -32,9 +34,8 @@ const putKinesisStream = (data: string) => {
 
 const putDynamoDb = item => {
   const newId = uuid();
-  const dynamoDb = new DynamoDB.DocumentClient();
   const putParams: DynamoDB.DocumentClient.PutItemInput = {
-    TableName: process.env.DYNAMODB_TABLE,
+    TableName: process.env.PAGE_DYNAMODB_TABLE,
     Item: {
       id: newId,
       ...item
@@ -51,35 +52,70 @@ const putDynamoDb = item => {
     });
 };
 
-export const hello: APIGatewayProxyHandler = async event => {
-  const urls = [
-    "http://v150-95-157-102.a096.g.tyo1.static.cnode.io",
-    "http://v150-95-157-102.a096.g.tyo1.static.cnode.io",
-    "http://v150-95-157-102.a096.g.tyo1.static.cnode.io",
-    "http://v150-95-157-102.a096.g.tyo1.static.cnode.io",
-    "http://v150-95-157-102.a096.g.tyo1.static.cnode.io",
-    "http://v150-95-157-102.a096.g.tyo1.static.cnode.io",
-    "http://v150-95-157-102.a096.g.tyo1.static.cnode.io",
-    "http://v150-95-157-102.a096.g.tyo1.static.cnode.io",
-    "http://v150-95-157-102.a096.g.tyo1.static.cnode.io"
-  ];
+export const addUrl: APIGatewayProxyHandler = async event => {
+  const url = JSON.parse(event.body).url;
+  const item = {
+    url
+  };
+
+  const putParams: DynamoDB.DocumentClient.PutItemInput = {
+    TableName: process.env.URL_DYNAMODB_TABLE,
+    Item: item
+  };
+  return await dynamoDb
+    .put(putParams)
+    .promise()
+    .then(data => {
+      console.log(data);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          item
+        })
+      };
+    })
+    .catch(err => {
+      console.log(err);
+      return {
+        statusCode: 200,
+        body: JSON.stringify(err)
+      };
+    });
+};
+
+export const slot: APIGatewayProxyHandler = async () => {
+  const scanParams: DynamoDB.DocumentClient.ScanInput = {
+    TableName: process.env.URL_DYNAMODB_TABLE
+  };
+  const urls = await dynamoDb
+    .scan(scanParams)
+    .promise()
+    .then(data => {
+      return data.Items.map(item => {
+        console.log(item);
+        return item.url;
+      });
+    });
+  console.log(`urls: ${urls}`);
   const revision = new Date().getTime();
   for (const url of urls) {
     const data = {
       url,
       revision
     };
+    console.log(`JSON.stringify(data): ${JSON.stringify(data)}`);
+    console.log(`JSON.stringify(data): ${JSON.stringify(data)}`);
     await putKinesisStream(JSON.stringify(data));
   }
   return {
     statusCode: 200,
     body: JSON.stringify({
-      input: event
+      revision
     })
   };
 };
 
-export const kinesisoutput: KinesisStreamHandler = async event => {
+export const crawl: KinesisStreamHandler = async event => {
   for (const record of event.Records) {
     console.log(`record.kinesis.data: ${record.kinesis.data}`);
     const data = JSON.parse(
